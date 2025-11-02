@@ -353,6 +353,7 @@ public class TableFactoryService {
             List<T> contextFactories) {
 
         final List<String> plainGivenKeys = new LinkedList<>();
+        // 1.1 预处理 DDL 支持的属性：将数组索引替换为通配符、忽略重复项
         properties
                 .keySet()
                 .forEach(
@@ -368,16 +369,21 @@ public class TableFactoryService {
         List<T> supportedFactories = new LinkedList<>();
         Tuple2<T, List<String>> bestMatched = null;
         for (T factory : contextFactories) {
+            // 2. 处理候选 Factory 上下文必需属性：转小写
             Set<String> requiredContextKeys = normalizeContext(factory).keySet();
+            // 3. 处理候选 Factory 支持属性：转二元组
+            // 元组 f0 是支持属性的 Key 键
+            // 元组 f1 是支持属性中通配符属性前缀，例如 format.* 的 format. 形式
             Tuple2<List<String>, List<String>> tuple2 = normalizeSupportedProperties(factory);
-            // ignore context keys
+            // 4. 从 DDL 支持属性中过滤掉候选 Factory 上下文必需属性
             List<String> givenContextFreeKeys =
                     plainGivenKeys.stream()
                             .filter(p -> !requiredContextKeys.contains(p))
                             .collect(Collectors.toList());
+            // 过滤特殊属性 Key，只针对 TableFormatFactory 处理
             List<String> givenFilteredKeys =
                     filterSupportedPropertiesFactorySpecific(factory, givenContextFreeKeys);
-
+            // 判断 DDL 支持属性中是否有 Factory 不支持的
             boolean allTrue = true;
             List<String> unsupportedKeys = new ArrayList<>();
             for (String k : givenFilteredKeys) {
@@ -387,6 +393,7 @@ public class TableFactoryService {
                 }
             }
             if (allTrue) {
+                // DDL 中的支持属性 Factory 都支持
                 supportedFactories.add(factory);
             } else {
                 if (bestMatched == null || unsupportedKeys.size() < bestMatched.f1.size()) {
@@ -396,6 +403,7 @@ public class TableFactoryService {
         }
 
         if (supportedFactories.isEmpty()) {
+            // 输出错误诊断信息
             String bestMatchedMessage = null;
             if (bestMatched != null) {
                 bestMatchedMessage =
@@ -420,6 +428,7 @@ public class TableFactoryService {
     /** Prepares the supported properties of a factory to be used for match operations. */
     private static Tuple2<List<String>, List<String>> normalizeSupportedProperties(
             TableFactory factory) {
+        // 支持的属性：例如，format.*；host；format.fields.#.name
         List<String> supportedProperties = factory.supportedProperties();
         if (supportedProperties == null) {
             throw new TableException(
@@ -427,11 +436,11 @@ public class TableFactoryService {
                             "Supported properties of factory '%s' must not be null.",
                             factory.getClass().getName()));
         }
-        List<String> supportedKeys =
-                supportedProperties.stream().map(String::toLowerCase).collect(Collectors.toList());
-
-        // extract wildcard prefixes
+        // 支持的属性 Key 键：小写
+        List<String> supportedKeys = supportedProperties.stream().map(String::toLowerCase).collect(Collectors.toList());
+        // 通配符属性转换 例如 format.* -> format.
         List<String> wildcards = extractWildcardPrefixes(supportedKeys);
+        //
         return Tuple2.of(supportedKeys, wildcards);
     }
 
@@ -448,7 +457,7 @@ public class TableFactoryService {
      */
     private static List<String> filterSupportedPropertiesFactorySpecific(
             TableFactory factory, List<String> keys) {
-
+        // 针对 TableFormatFactory 特殊处理
         if (factory instanceof TableFormatFactory) {
             boolean includeSchema = ((TableFormatFactory) factory).supportsSchemaDerivation();
             return keys.stream()
